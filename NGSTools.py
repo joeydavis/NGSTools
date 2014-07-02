@@ -19,6 +19,51 @@ mapRY = {'A' : 'R', 'G' : 'R',
          'C' : 'Y', 'T' : 'Y',
          'N' : 'N'}
 
+def calcMatches(primer, rRNASeq=rRNASeq_correct):
+    posList = [0]*(len(rRNASeq))
+    for i in range(len(rRNASeq)-len(primer)):
+        off = hammingDist(primer, rRNASeq[i:i+len(primer)])
+        if off > 20:
+            print off
+            print i
+        posList[i] = len(primer) - off
+    return posList
+
+def assignReadsByPos(revReadFile, totalReads, lengthRead, primerList, cogRNASeq=None):
+    if (cogRNASeq is None):
+        primer = revReadFile.split('_')[-1].split('.')[0]
+        cogRNAName = str(primerList[primerList['rtPrimer'].str.slice(0,16).str.upper() == primer]['name'].values[0])
+        cogRNAFile = open('/home/jhdavis/data/2014/2014_06_07-ShapeSeqAnalysis/23SSeqs/'+cogRNAName+'_rRNASeq.txt', 'r')
+        cogRNAFile.readline()
+        cogRNASeq = cogRNAFile.readline()
+    else:
+        cogRNAName = 'noMatch'
+        cogRNASeq = rRNASeq_correct
+    fastq_fileR2 = itertools.islice(HTSeq.FastqReader(revReadFile), totalReads)
+
+    posHash = {}
+    counts = 0
+    while counts < totalReads:
+        try:
+            r2 = fastq_fileR2.next()
+        except StopIteration:
+            break
+        s = r2.seq
+        s = s[:lengthRead]
+        try:
+            posHash[str(cogRNASeq.index(s[:lengthRead]))] += 1
+        except KeyError:
+            posHash[str(cogRNASeq.index(s[:lengthRead]))] = 1
+        except ValueError:
+            try:
+                posHash['-1'] +=1
+            except KeyError:
+                posHash['-1'] = 1
+        counts = counts + 1
+    
+    return [posHash, cogRNAName]
+
+
 def findIndexCode (fastq_file, numReads):
     codeHash = {}
     for read in itertools.islice(fastq_file, numReads):
@@ -180,10 +225,8 @@ def assignReadsToPrimers(primerList, read1, read2, maxHamDist=1, rtMatch=13,
             r2Trunc = r2[0:trunc]
 
             found = False
-            minHD = rtMatch
             for primerSeq in RTs:
                 hd = hammingDist(primerSeq, r1Trunc.seq[4:rtMatch+4])
-                minHD = min(hd, minHD)
                 if hd <= maxHamDist:
                     found = True
 
@@ -223,17 +266,18 @@ def generateTruncSeqs(rna, primerList, processItems = None, path=None, adapterLe
         processItems = range(len(primerList))
     for i in processItems:
         primerSeq = rc(primerList.loc[i]['rtPrimer']).upper()
+        primerName = primerList.loc[i]['name']
         bindLocation = rna.find(primerSeq[:-intBarLength])
         if bindLocation == -1:
-            print "Error in primer "+ primerList.loc[i]['name'] + ", cannot find binding location"
+            print "Error in primer "+ primerName + ", cannot find binding location"
         else:
             s = rna[0:bindLocation+len(primerSeq)-intBarLength] + primerSeq[-intBarLength:]
             if printOutput:
-                print primerList.loc[i]['name'] + ':' + 'OK'
+                print primerName + ':' + 'OK'
                 print s
             if not path==None:
-                outFile = open(path+primerList.loc[i]['name']+'_rRNASeq.txt', 'w')
-                outFile.write('>'+primerList.loc[i]['name']+'\n')
+                outFile = open(path+primerName+'_'+rc(primerSeq)+'_rRNASeq.fa', 'w')
+                outFile.write('>'+primerName+'\n')
                 outFile.write(s)
                 outFile.close()
     return primerList
